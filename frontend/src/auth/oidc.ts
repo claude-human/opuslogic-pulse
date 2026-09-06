@@ -14,7 +14,27 @@ export const userManager = new UserManager({
   automaticSilentRenew: true,
 })
 
-export async function ensureAuthenticated(): Promise<User> {
+// R660.2 (OpusLogic Block 220). A shared secret, presented once as
+// http://localhost:7501/#token=… and kept in sessionStorage, replaces the
+// Zitadel login for the tunnel case. The collector compares it against
+// PULSE_SHARED_TOKEN. The OIDC path below is untouched.
+const SHARED_KEY = 'pulse_shared_token'
+
+function takeSharedTokenFromHash(): void {
+  const m = window.location.hash.match(/[#&]token=([^&]+)/)
+  if (m) {
+    sessionStorage.setItem(SHARED_KEY, decodeURIComponent(m[1]))
+    window.history.replaceState({}, '', window.location.pathname + window.location.search)
+  }
+}
+
+export function sharedToken(): string | null {
+  return sessionStorage.getItem(SHARED_KEY)
+}
+
+export async function ensureAuthenticated(): Promise<User | null> {
+  takeSharedTokenFromHash()
+  if (sharedToken()) return null
   if (window.location.search.includes('code=') && window.location.search.includes('state=')) {
     const user = await userManager.signinRedirectCallback()
     const ret = sessionStorage.getItem('pulse_return_path') || '/'
@@ -33,6 +53,8 @@ export async function ensureAuthenticated(): Promise<User> {
 }
 
 export async function getAccessToken(): Promise<string | null> {
+  const shared = sharedToken()
+  if (shared) return shared
   let u = await userManager.getUser()
   if (!u || u.expired) {
     // Token gone or expired (e.g. tab woke after long sleep). Try silent renew
@@ -50,10 +72,16 @@ export async function getAccessToken(): Promise<string | null> {
 }
 
 export async function getUsername(): Promise<string> {
+  if (sharedToken()) return 'shared token'
   const u = await userManager.getUser()
   return u?.profile?.preferred_username ?? u?.profile?.name ?? ''
 }
 
 export async function logout(): Promise<void> {
+  if (sharedToken()) {
+    sessionStorage.removeItem(SHARED_KEY)
+    window.location.reload()
+    return
+  }
   await userManager.signoutRedirect()
 }

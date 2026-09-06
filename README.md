@@ -66,3 +66,15 @@ Encrypt will try both and fail if AAAA resolves to an unreachable host).
 Scaffold — collector framework, DuckDB storage, WebSocket stream, and Overview
 tab wired up with host-metrics probe as proof of the pipeline. Additional probes
 and tabs land in subsequent iterations.
+
+## Reaching the dashboard over the tunnel (Block 220)
+
+The public route is gone (OpusLogic Block 219). From the host:
+
+    ssh -L 7501:127.0.0.1:7501 <user>@87.106.91.170
+
+then open `http://localhost:7501/#token=<PULSE_SHARED_TOKEN>` once — the token
+(set in `infra/.env`) is kept in the tab's sessionStorage and sent as the bearer
+token to the data routes and the WebSocket. Without a token in the tab the
+Zitadel login runs as before; `http://localhost:7501` is a registered redirect
+URI of the `pulse-frontend` application since Block 220.

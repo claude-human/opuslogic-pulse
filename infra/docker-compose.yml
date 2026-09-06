@@ -39,6 +39,11 @@ services:
       # DuckDB spills to disk instead. Keep this under mem_limit with room for
       # Python and the probes (~150 MiB resident, measured).
       PULSE_DUCKDB_MEMORY_LIMIT: ${PULSE_DUCKDB_MEMORY_LIMIT:-1GB}
+      # R660.2 (OpusLogic Block 220). A shared secret that gates /api/overview,
+      # /api/range and /api/stream without Zitadel: open the dashboard once as
+      # http://localhost:7501/#token=<value> and it is kept for the tab. Set the
+      # value in infra/.env (root-only); unset, only the Zitadel login works.
+      PULSE_SHARED_TOKEN: ${PULSE_SHARED_TOKEN:-}
     volumes:
       - pulse_data:/data
       - /var/run/docker.sock:/var/run/docker.sock:ro

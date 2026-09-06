@@ -13,6 +13,7 @@ explicit Host header because Zitadel routes by Host. Required env:
 from __future__ import annotations
 
 import logging
+import hmac
 import os
 import time
 from typing import Optional
@@ -113,17 +114,37 @@ def _require(claims: dict) -> None:
         )
 
 
+# R660.2 (OpusLogic Block 220, 2026-09-06). A shared secret that gates the data
+# routes WITHOUT Zitadel. The dashboard is reached over an SSH tunnel by one
+# person on one machine; on 2026-09-06 nobody on the programme could edit the
+# Zitadel application that guards it, so a login that depends on the identity
+# provider was the wrong shape for the CEO's own dashboard. Set
+# PULSE_SHARED_TOKEN in the environment and present it as the bearer token
+# (or ?token= on the WebSocket); the JWT path below is unchanged and keeps
+# working for the day the redirect URI lands. Unset, nothing changes.
+_SHARED_CLAIMS = {"sub": "pulse-shared-token", ZITADEL_ROLES_CLAIM: {"viewer": {}}}
+
+
+def _shared_token_matches(token: str) -> bool:
+    expected = os.environ.get("PULSE_SHARED_TOKEN", "")
+    return bool(expected) and hmac.compare_digest(token.encode(), expected.encode())
+
+
 async def require_user(
     creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
 ) -> dict:
     if creds is None or creds.scheme.lower() != "bearer":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="bearer token required")
+    if _shared_token_matches(creds.credentials):
+        return dict(_SHARED_CLAIMS)
     claims = _decode(creds.credentials)
     _require(claims)
     return claims
 
 
 async def verify_token_string(token: str) -> dict:
+    if _shared_token_matches(token):
+        return dict(_SHARED_CLAIMS)
     claims = _decode(token)
     _require(claims)
     return claims
