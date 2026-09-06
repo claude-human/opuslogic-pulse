@@ -41,6 +41,16 @@ class Storage:
         # DuckDB connections are not thread-safe — serialize access with a lock.
         self._lock = threading.Lock()
         self._conn = duckdb.connect(path)
+        # R657 (OpusLogic Block 219, 2026-09-06). DuckDB sizes its pool at 80 %
+        # of the HOST's RAM and ignores the container's cgroup limit; on the
+        # 7.9 GB VPS that was 6.1 GiB, and on 2026-07-27 an allocation inside
+        # that pool failed (`Out of Memory Error … 6.1 GiB/6.1 GiB used`) and
+        # took the scheduler with it. Bound the pool explicitly and let big
+        # queries spill next to the database instead.
+        limit = os.getenv("PULSE_DUCKDB_MEMORY_LIMIT", "").strip()
+        if limit:
+            self._conn.execute(f"SET memory_limit='{limit}'")
+            self._conn.execute(f"SET temp_directory='{path}.tmp'")
         self._conn.execute(_SCHEMA)
 
     def write_samples(self, samples: Iterable[Sample]) -> None:

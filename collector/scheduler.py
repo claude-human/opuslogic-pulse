@@ -63,19 +63,31 @@ class Scheduler:
         tick = 0
         while not self._stopping.is_set():
             start = datetime.now(timezone.utc)
-            samples = await self._collect_all()
-            await self._storage.write_samples_async(samples)
-            await self._broadcast(
-                {
-                    "type": "samples",
-                    "ts": start.isoformat(),
-                    "samples": [_serialize(s) for s in samples],
-                }
-            )
-            # Prune every 100 ticks (~15 min at 10s interval)
-            tick += 1
-            if tick % 100 == 0:
-                await asyncio.to_thread(self._storage.prune)
+            # R657 (OpusLogic Block 219). One tick's failure must not end the
+            # loop: on 2026-07-27 00:19 a DuckDB out-of-memory error escaped
+            # this body, the task died with the exception never retrieved (the
+            # reference in self._task keeps asyncio from logging it), and the
+            # collector answered /api/health `ok` for 41 days while writing
+            # nothing. Log it, name the tick, carry on.
+            try:
+                samples = await self._collect_all()
+                await self._storage.write_samples_async(samples)
+                await self._broadcast(
+                    {
+                        "type": "samples",
+                        "ts": start.isoformat(),
+                        "samples": [_serialize(s) for s in samples],
+                    }
+                )
+                # Prune every 100 ticks (~15 min at 10s interval)
+                tick += 1
+                if tick % 100 == 0:
+                    t0 = datetime.now(timezone.utc)
+                    await asyncio.to_thread(self._storage.prune)
+                    log.info("scheduler: prune done in %.1fs (tick %d)",
+                             (datetime.now(timezone.utc) - t0).total_seconds(), tick)
+            except Exception:
+                log.exception("scheduler: tick %d failed; the loop continues", tick)
 
             try:
                 await asyncio.wait_for(

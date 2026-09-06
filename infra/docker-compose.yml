@@ -25,6 +25,14 @@ services:
       OIDC_ISSUER: ${OIDC_ISSUER}
       OIDC_JWKS_URI: ${OIDC_JWKS_URI}
       OIDC_PROJECT_ID: ${OIDC_PROJECT_ID}
+      # R657.4/R657.5 (OpusLogic Block 219, 2026-09-06). DuckDB 1.1.3 sizes its
+      # buffer pool at 80 % of the HOST's RAM (6.1 GiB on this VPS) and ignores
+      # the container's cgroup limit — measured with `docker run --memory=1g`.
+      # Without this inner limit the mem_limit below is a restart machine: the
+      # pool grows past the cap and the kernel kills the collector. With it,
+      # DuckDB spills to disk instead. Keep this under mem_limit with room for
+      # Python and the probes (~150 MiB resident, measured).
+      PULSE_DUCKDB_MEMORY_LIMIT: ${PULSE_DUCKDB_MEMORY_LIMIT:-1GB}
     volumes:
       - pulse_data:/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -35,6 +43,15 @@ services:
       - /opt/backups:/host/opt/backups:ro
       - /opt/opuslogic:/host/opt/opuslogic:ro
       - /etc/opuslogic:/host/etc/opuslogic:ro
+    # R657.4. Sized against the readings that exist: 2.06 GiB resident on
+    # 2026-09-06 (Block 218), 2.14 GiB resident+swapped later that day, cgroup
+    # peak 3.81 GiB since 2026-04-24 — all of it DuckDB's uncapped pool, not a
+    # working set: with PULSE_DUCKDB_MEMORY_LIMIT=1GB the process needs the pool
+    # plus ~150 MiB. A cap turns a leak into a RESTART rather than a platform
+    # kill; the restart is visible in `docker ps` (RestartCount) and on the
+    # platform's hourly watch line (pulse_rss_mb / pulse_db_age_s).
+    mem_limit: 1536m
+    memswap_limit: 1536m
     networks:
       - opuslogic-network
 
@@ -48,6 +65,13 @@ services:
     restart: unless-stopped
     depends_on:
       - collector
+    # R657.3. The public Caddy route (pulse.opuslogic.eu) is gone; the
+    # dashboard is reached from the host only:
+    #   ssh -L 7501:127.0.0.1:7501 <user>@87.106.91.170   →  http://localhost:7501
+    # The Zitadel app `pulse-frontend` must list http://localhost:7501 as a
+    # redirect URI for the login to complete there.
+    ports:
+      - "127.0.0.1:7501:80"
     networks:
       - opuslogic-network
 
