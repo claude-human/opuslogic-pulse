@@ -11,7 +11,13 @@ services:
     environment:
       PULSE_DB_PATH: /data/pulse.duckdb
       PULSE_POLL_INTERVAL: "10"
-      PULSE_RETENTION_DAYS: "90"
+      # R657.5 (Block 219): 90 days was measured at 47.8 M rows / 3.5 GB; opening
+      # that table needs 3.0 GiB and the Overview query 6.0 GiB (unbounded), and
+      # a DuckDB DELETE does not honour memory_limit - no cap this 7.9 GB host can
+      # afford lets the 90-day table run. At 7 days (3.2 M rows) the Overview
+      # peaks at 1.28 GiB and one prune takes 0.1 s, so 7 is what the cap below
+      # can hold. 90 needs a storage redesign (rollups) or a bigger host.
+      PULSE_RETENTION_DAYS: "7"
       PULSE_BACKEND_URL: ${PULSE_BACKEND_URL:-https://opuslogic_backend:443}
       PULSE_ZITADEL_URL: ${PULSE_ZITADEL_URL:-http://opuslogic_zitadel:8080}
       PULSE_TEMPORAL_URL: ${PULSE_TEMPORAL_URL:-opuslogic_temporal:7233}
@@ -47,11 +53,12 @@ services:
     # 2026-09-06 (Block 218), 2.14 GiB resident+swapped later that day, cgroup
     # peak 3.81 GiB since 2026-04-24 — all of it DuckDB's uncapped pool, not a
     # working set: with PULSE_DUCKDB_MEMORY_LIMIT=1GB the process needs the pool
-    # plus ~150 MiB. A cap turns a leak into a RESTART rather than a platform
+    # plus ~150 MiB; the Overview query at 7 days peaks at 1.28 GiB measured, so
+    # 2 GiB leaves headroom. A cap turns a leak into a RESTART rather than a platform
     # kill; the restart is visible in `docker ps` (RestartCount) and on the
     # platform's hourly watch line (pulse_rss_mb / pulse_db_age_s).
-    mem_limit: 1536m
-    memswap_limit: 1536m
+    mem_limit: 2048m
+    memswap_limit: 2048m
     networks:
       - opuslogic-network
 
